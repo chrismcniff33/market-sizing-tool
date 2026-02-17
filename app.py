@@ -1,4 +1,3 @@
-%%writefile app.py
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -132,8 +131,13 @@ if 'qual_insights' not in st.session_state: st.session_state.qual_insights = Non
 # Sidebar
 with st.sidebar:
     st.header("🔑 API Credentials")
-    oa_key = st.text_input("OpenAI API Key", type="password")
-    tavily_key = st.text_input("Tavily API Key (Optional)", type="password")
+    
+    # UPGRADED: Check for Secrets first
+    if "OPENAI_API_KEY" in st.secrets:
+        oa_key = st.secrets["OPENAI_API_KEY"]
+        st.success("✅ OpenAI Key loaded from Secrets")
+    else:
+        oa_key = st.text_input("OpenAI API Key", type="password")
 
     st.divider()
     st.header("⚙️ Processing Settings")
