@@ -94,19 +94,27 @@ def extract_text_from_pdf(uploaded_file):
 
 # --- SHARED TAXONOMY KNOWLEDGE BASE ---
 EUROMONITOR_SNACKS_TAXONOMY = """
-EUROMONITOR SNACKS TAXONOMY RULES & EXCLUSIONS:
+EUROMONITOR SNACKS TAXONOMY RULES & STRICT BOUNDARIES:
+
 1. Confectionery:
-   - Includes: Chocolate (Pouches/Bags, Boxed Assortments, Toys, Countlines, Seasonal, Tablets, Other), Gum (Chewing/Bubble), and Sugar Confectionery (Boiled sweets, Chewy candies, Gummies/Jellies, Liquorice, Lollipops, Medicated, Mints, Toffees/Caramels/Nougat).
-   - EXCLUDES: Baking/cooking chocolate, unpackaged/loose sales (except for chocolate where artisanal is included).
+   - Chocolate Confectionery Includes: 
+     * Countlines: Unsegmented chocolate bars eaten as snacks (e.g., Snickers, Mars). CRITICAL EXCEPTION: Chocolate wafer/biscuit bars positioned as confectionery (e.g., KitKat, Twix, Hanuta Riegel) are explicitly tracked here as Countlines, NOT as Sweet Biscuits/Wafers.
+     * Pouches/Bags, Boxed Assortments, Toys, Seasonal, Tablets (moulded/segmented, e.g., Milka, Dairy Milk).
+   - Gum (Chewing/Bubble) & Sugar Confectionery (Boiled sweets, Chewy candies, Gummies/Jellies, Liquorice, Lollipops, Mints, Toffees/Caramels/Nougat).
+   - EXCLUDES: Baking/cooking chocolate.
+
 2. Ice Cream:
-   - Includes: Frozen Yoghurt, Impulse (Single portion dairy/water), Plant-based, Unpackaged (sold by scoop), Take-Home (Bulk, Desserts, Multi-pack).
-   - EXCLUDES: Soft serve from dispensing machines in foodservice outlets, frozen desserts.
+   - Includes: Frozen Yoghurt, Impulse (Single portion dairy/water), Plant-based, Unpackaged, Take-Home (Bulk, Desserts, Multi-pack).
+   - EXCLUDES: Soft serve from dispensing machines.
+
 3. Savoury Snacks:
-   - Includes: Nuts/Seeds/Trail Mixes (MUST be processed/packaged), Salty Snacks (Potato chips, Tortilla chips, Puffed snacks, Rice snacks, Veg/Pulse/Bread chips like packaged snack croutons), Savoury Biscuits (dry bread substitutes), Popcorn (packaged/microwave), Pretzels, Meat Snacks (ambient), Seafood Snacks.
-   - EXCLUDES: Raw/baking nuts, unpackaged cinema popcorn, chocolate-coated nuts/pretzels/popcorn (these go to Confectionery), croutons meant for soup/salad.
+   - Includes: Nuts/Seeds/Trail Mixes (MUST be processed/packaged), Salty Snacks (Potato/Tortilla chips, Puffed snacks, Rice snacks, Veg/Pulse/Bread chips like snack croutons), Savoury Biscuits (dry bread substitutes), Popcorn (packaged/microwave), Pretzels, Meat/Seafood Snacks (ambient).
+   - EXCLUDES: Raw/baking nuts, unpackaged cinema popcorn, chocolate-coated nuts/pretzels/popcorn (these go to Confectionery), soup/salad croutons.
+
 4. Sweet Biscuits, Snack Bars and Fruit Snacks:
-   - Includes: Fruit Snacks (Dried fruit, Processed fruit snacks), Snack Bars (Cereal bars, Protein/Energy bars, Fruit/Nut bars), Sweet Biscuits (Chocolate coated, Cookies, Filled biscuits, Plain biscuits, Wafers).
-   - EXCLUDES: Unpackaged dried fruit, dried fruit for baking, weight-loss/meal replacement bars, cookie dough, ice cream wafers.
+   - Fruit Snacks: Dried fruit, Processed fruit snacks. (EXCLUDES: unpackaged/baking dried fruit).
+   - Snack Bars: Cereal bars, Protein/Energy bars, Fruit/Nut bars. (EXCLUDES: weight-loss/meal replacement bars).
+   - Sweet Biscuits: Chocolate coated, Cookies, Filled biscuits, Plain biscuits, Wafers. CRITICAL EXCLUSION: Filled wafers or biscuit bars heavily coated with chocolate and positioned against chocolate confectionery (e.g., KitKat, Twix) are strictly EXCLUDED from Sweet Biscuits and tracked under Chocolate Confectionery (Countlines).
 """
 
 # --- AI FUNCTIONS (CACHED) ---
@@ -114,22 +122,32 @@ EUROMONITOR SNACKS TAXONOMY RULES & EXCLUSIONS:
 @st.cache_data(show_spinner=False, ttl=3600)
 def check_euromonitor(_client, input_text):
     system_prompt = f"""
-    You are a Senior Market Research Analyst and expert in Euromonitor Passport's taxonomy.
+    You are a strict, detail-oriented Senior Market Research Analyst and expert in Euromonitor Passport's taxonomy.
     Determine how the custom user category definition(s) map to Euromonitor's standard 'Snacks' definitions.
     
     {EUROMONITOR_SNACKS_TAXONOMY}
 
+    CRITICAL INSTRUCTION FOR MAPPING:
+    You must rigorously check EVERY product example provided by the user against the taxonomy boundaries BEFORE deciding the overall coverage status.
+    If a user groups items together that Euromonitor splits apart (e.g., standard biscuits vs confectionery countlines), you MUST flag this as "Partially Covered" and detail the split.
+
     TASK:
-    Analyze the user's input text, which contains one or multiple category definitions and potentially product examples or notes.
-    Identify EACH distinct category mentioned.
-    For EACH category, return a mapping in the JSON array below:
+    Analyze the user's input text. Identify EACH distinct category.
+    For EACH category, return a mapping in the EXACT JSON format below:
     {{
         "mappings": [
             {{
                 "User Category": "Name of the custom category analyzed",
+                "Example Analysis": [
+                    {{
+                        "Example Product": "Name of the specific example given by user",
+                        "Passport Category": "The strict Euromonitor category it belongs to",
+                        "Rule Applied": "The specific taxonomy rule used to classify this item"
+                    }}
+                ],
                 "Coverage Status": "Fully Covered" | "Partially Covered" | "Not Covered", 
-                "Euromonitor Categories": "List of exact subcategories matched (comma separated)", 
-                "Explanatory Notes": "Brief explanation of alignment, logic, and how provided examples fit, noting any strict Euromonitor exclusions."
+                "Euromonitor Categories": "List of exact subcategories matched (e.g., 'Sweet Biscuits, Countlines')", 
+                "Explanatory Notes": "Explain exactly how the definition and examples split across Passport categories based on your Example Analysis."
             }}
         ]
     }}
@@ -139,7 +157,8 @@ def check_euromonitor(_client, input_text):
         response = _client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            temperature=0.1 # <--- Slight flexibility while keeping it highly deterministic
         )
         return json.loads(response.choices[0].message.content)
     except Exception as e:
@@ -163,7 +182,8 @@ def classify_sku_batch(_client, category_def, skus_data_json):
         response = _client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": json.dumps(skus_data)}],
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            temperature=0.1
         )
         return json.loads(response.choices[0].message.content)
     except Exception as e:
@@ -230,7 +250,7 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
         
-    st.caption("v4.2 | Consolidated Data Ingestion")
+    st.caption("v4.3 | Chain of Thought & Strict Rules Enabled")
 
 # Tabs
 tab1, tab2, tab3 = st.tabs(["1️⃣ Definition Alignment", "2️⃣ Euromonitor Data", "📊 Insights & Rationale"])
@@ -295,6 +315,14 @@ with tab1:
         mappings = st.session_state.alignment_check.get("mappings", [])
         
         if mappings:
+            # Format the Example Analysis for display inside the dataframe
+            for m in mappings:
+                if "Example Analysis" in m and isinstance(m["Example Analysis"], list):
+                    formatted_examples = ""
+                    for ex in m["Example Analysis"]:
+                        formatted_examples += f"• {ex.get('Example Product', 'Unknown')}: mapped to {ex.get('Passport Category', 'Unknown')} ({ex.get('Rule Applied', '')})\n"
+                    m["Example Analysis"] = formatted_examples.strip()
+            
             df_mappings = pd.DataFrame(mappings)
             
             # Display interactive dataframe
@@ -306,6 +334,7 @@ with tab1:
                     "User Category": st.column_config.TextColumn("User Category", width="medium"),
                     "Coverage Status": st.column_config.TextColumn("Coverage Status", width="small"),
                     "Euromonitor Categories": st.column_config.TextColumn("Passport Subcategories", width="medium"),
+                    "Example Analysis": st.column_config.TextColumn("Example Product Breakdown", width="large"),
                     "Explanatory Notes": st.column_config.TextColumn("Strategic Rationale & Logic", width="large"),
                 }
             )
