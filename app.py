@@ -188,7 +188,7 @@ def check_euromonitor(_client, input_text):
                 "Euromonitor Coverage": "Fully Covered" | "Partially Covered" | "Zero Coverage",
                 "Alignment": "Fully Aligned (1-to-1)" | "Partially Aligned (Subset)" | "Partially Aligned (Scattered)" | "Not Aligned" | "N/A",
                 "Mapped Euromonitor Subcategories": "List of the MOST GRANULAR subcategories matched (e.g., 'Potato Chips', 'Chewing Gum', 'Sweet Biscuits, Countlines') or blank if Zero Coverage", 
-                "Rationale": "Explain your logic. Be clear about WHY the Coverage and Alignment statuses were chosen based on the rules provided.",
+                "Rationale": "Provide a highly detailed, two-part explanation. First, state EXACTLY why the Coverage status was chosen (e.g., confirm that 100% of the described items are tracked somewhere in Passport). Second, state EXACTLY why the Alignment status was chosen, detailing the specific split across Passport categories or the broader category it sits within. Cite specific taxonomy inclusions/exclusions.",
                 "Examples": [
                     {{
                         "Product": "Name of example",
@@ -298,7 +298,7 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
         
-    st.caption("v4.6 | Coverage Independence Logic Enabled")
+    st.caption("v4.7 | Detailed Rationale & Full Coverage Logic")
 
 # Tabs
 tab1, tab2, tab3 = st.tabs(["1️⃣ Definition Alignment", "2️⃣ Euromonitor Data", "📊 Insights & Rationale"])
