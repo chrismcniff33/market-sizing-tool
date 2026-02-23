@@ -94,27 +94,57 @@ def extract_text_from_pdf(uploaded_file):
 
 # --- SHARED TAXONOMY KNOWLEDGE BASE ---
 EUROMONITOR_SNACKS_TAXONOMY = """
-EUROMONITOR SNACKS TAXONOMY RULES & STRICT BOUNDARIES:
+EUROMONITOR SNACKS TAXONOMY HIERARCHY & STRICT BOUNDARIES:
 
-1. Confectionery:
-   - Chocolate Confectionery Includes: 
-     * Countlines: Unsegmented chocolate bars eaten as snacks (e.g., Snickers, Mars). CRITICAL EXCEPTION: Chocolate wafer/biscuit bars positioned as confectionery (e.g., KitKat, Twix, Hanuta Riegel) are explicitly tracked here as Countlines, NOT as Sweet Biscuits/Wafers.
-     * Pouches/Bags, Boxed Assortments, Toys, Seasonal, Tablets (moulded/segmented, e.g., Milka, Dairy Milk).
-   - Gum (Chewing/Bubble) & Sugar Confectionery (Boiled sweets, Chewy candies, Gummies/Jellies, Liquorice, Lollipops, Mints, Toffees/Caramels/Nougat).
-   - EXCLUDES: Baking/cooking chocolate.
+1. Confectionery
+   - Chocolate Confectionery:
+     * Countlines (CRITICAL EXCEPTION: Includes chocolate wafer/biscuit bars positioned as confectionery like KitKat, Twix. EXCLUDES Sweet Biscuits.)
+     * Chocolate Pouches and Bags
+     * Boxed Assortments
+     * Chocolate with Toys
+     * Seasonal Chocolate
+     * Tablets
+     * Other Chocolate Confectionery
+   - Gum:
+     * Chewing Gum (Includes functional/whitening gum. Excludes Bubble Gum)
+     * Bubble Gum
+   - Sugar Confectionery:
+     * Boiled Sweets, Chewy Candies, Gummies/Jellies, Liquorice, Lollipops, Medicated Confectionery, Mints (Power Mints, Standard Mints), Toffees/Caramels/Nougat, Other Sugar Confectionery.
+     * EXCLUDES: Baking/cooking chocolate.
 
-2. Ice Cream:
+2. Ice Cream
    - Includes: Frozen Yoghurt, Impulse (Single portion dairy/water), Plant-based, Unpackaged, Take-Home (Bulk, Desserts, Multi-pack).
    - EXCLUDES: Soft serve from dispensing machines.
 
-3. Savoury Snacks:
-   - Includes: Nuts/Seeds/Trail Mixes (MUST be processed/packaged), Salty Snacks (Potato/Tortilla chips, Puffed snacks, Rice snacks, Veg/Pulse/Bread chips like snack croutons), Savoury Biscuits (dry bread substitutes), Popcorn (packaged/microwave), Pretzels, Meat/Seafood Snacks (ambient).
-   - EXCLUDES: Raw/baking nuts, unpackaged cinema popcorn, chocolate-coated nuts/pretzels/popcorn (these go to Confectionery), soup/salad croutons.
+3. Savoury Snacks
+   - Nuts, Seeds and Trail Mixes (Processed/packaged only)
+   - Salty Snacks:
+     * Potato Chips
+     * Tortilla Chips
+     * Puffed Snacks
+     * Rice Snacks
+     * Vegetable, Pulse and Bread Chips (includes snack croutons)
+   - Savoury Biscuits (dry bread substitutes)
+   - Popcorn (packaged/microwave)
+   - Pretzels
+   - Meat Snacks (ambient)
+   - Seafood Snacks (ambient)
 
-4. Sweet Biscuits, Snack Bars and Fruit Snacks:
-   - Fruit Snacks: Dried fruit, Processed fruit snacks. (EXCLUDES: unpackaged/baking dried fruit).
-   - Snack Bars: Cereal bars, Protein/Energy bars, Fruit/Nut bars. (EXCLUDES: weight-loss/meal replacement bars).
-   - Sweet Biscuits: Chocolate coated, Cookies, Filled biscuits, Plain biscuits, Wafers. CRITICAL EXCLUSION: Filled wafers or biscuit bars heavily coated with chocolate and positioned against chocolate confectionery (e.g., KitKat, Twix) are strictly EXCLUDED from Sweet Biscuits and tracked under Chocolate Confectionery (Countlines).
+4. Sweet Biscuits, Snack Bars and Fruit Snacks
+   - Fruit Snacks:
+     * Dried Fruit
+     * Processed Fruit Snacks
+   - Snack Bars:
+     * Cereal Bars
+     * Protein/Energy Bars
+     * Fruit and Nut Bars
+     * EXCLUDES: weight-loss/meal replacement bars
+   - Sweet Biscuits:
+     * Chocolate Coated Biscuits
+     * Cookies
+     * Filled Biscuits
+     * Plain Biscuits
+     * Wafers (EXCLUDES: biscuit bars/wafers heavily coated with chocolate and positioned against chocolate confectionery e.g., KitKat, Twix -> track as Countlines).
 """
 
 # --- AI FUNCTIONS (CACHED) ---
@@ -127,10 +157,21 @@ def check_euromonitor(_client, input_text):
     
     {EUROMONITOR_SNACKS_TAXONOMY}
 
-    CRITICAL INSTRUCTION FOR MAPPING:
-    You must distinguish between COVERAGE (Is the product tracked by Euromonitor at all?) and ALIGNMENT (Is it a 1-to-1 match with a single Euromonitor category?).
-    - If a user groups items together that Euromonitor splits apart (e.g., standard biscuits vs confectionery countlines), the COVERAGE is "Fully Covered" (because Euromonitor tracks all those items), but the ALIGNMENT is "Partially Aligned" (because it splits across multiple Passport categories).
-    - If the user category describes items Euromonitor completely ignores (e.g., raw baking nuts), COVERAGE is "Zero Coverage", ALIGNMENT is "N/A", and Categories/Examples should be left blank, but Rationale must explain why.
+    CRITICAL INSTRUCTIONS FOR MAPPING:
+    1. GRANULARITY: ALWAYS map the user category to the MOST GRANULAR (lowest-level) Euromonitor subcategory available in the hierarchy (e.g., map to "Potato Chips", not the parent "Salty Snacks" or "Savoury Snacks").
+    
+    2. COVERAGE vs. ALIGNMENT:
+       - COVERAGE: Does Euromonitor track the products in the user's category?
+         * "Fully Covered": All products are tracked somewhere in Passport.
+         * "Partially Covered": Some products are tracked, some are explicitly excluded.
+         * "Zero Coverage": None of the products are tracked.
+       - ALIGNMENT: How cleanly does the user's category map to the lowest-level Euromonitor node?
+         * "Fully Aligned (1-to-1)": The user category exactly mirrors the scope of ONE lowest-level Euromonitor category (e.g., user "Potato Chips" = Passport "Potato Chips").
+         * "Partially Aligned (Subset)": The user category is a smaller niche trapped INSIDE a broader Euromonitor category (e.g., user "Whitening Gum" is only a subset of Passport "Chewing Gum").
+         * "Partially Aligned (Scattered)": The user category spans MULTIPLE Euromonitor categories (e.g., user groups Biscuits and Countlines together).
+         * "N/A": If Zero Coverage.
+
+    3. RIGOROUS EXAMPLE CHECKING: You must rigorously check EVERY product example provided by the user against the taxonomy boundaries BEFORE deciding overall coverage and alignment.
 
     TASK:
     Analyze the user's input text. Identify EACH distinct category.
@@ -140,16 +181,16 @@ def check_euromonitor(_client, input_text):
             {{
                 "User Category": "Name of the custom category analyzed",
                 "Euromonitor Coverage": "Fully Covered" | "Partially Covered" | "Zero Coverage",
-                "Alignment": "Fully Aligned" | "Partially Aligned" | "Not Aligned" | "N/A",
-                "Mapped Euromonitor Subcategories": "List of exact subcategories matched (e.g., 'Sweet Biscuits, Countlines') or blank if Zero Coverage", 
-                "Rationale": "Explain your logic. If Partially Aligned, explain how it splits. If Zero Coverage, explain where you looked and why it is excluded.",
+                "Alignment": "Fully Aligned (1-to-1)" | "Partially Aligned (Subset)" | "Partially Aligned (Scattered)" | "Not Aligned" | "N/A",
+                "Mapped Euromonitor Subcategories": "List of the MOST GRANULAR subcategories matched (e.g., 'Potato Chips', 'Chewing Gum', 'Sweet Biscuits, Countlines') or blank if Zero Coverage", 
+                "Rationale": "Explain your logic. If Partially Aligned (Subset), explain what broader Passport category it sits inside and what it excludes. If Scattered, explain the split. If Zero Coverage, explain why.",
                 "Examples": [
                     {{
                         "Product": "Name of example",
-                        "Passport Category": "Category it belongs to",
-                        "Rule": "Rule applied"
+                        "Passport Category": "Lowest level category it belongs to",
+                        "Rule": "Rule applied based on the taxonomy"
                     }}
-                ] // Leave Examples array empty if Zero Coverage
+                ]
             }}
         ]
     }}
@@ -252,7 +293,7 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
         
-    st.caption("v4.4 | Coverage vs Alignment Tracking")
+    st.caption("v4.5 | Granularity & Subset Logic Enabled")
 
 # Tabs
 tab1, tab2, tab3 = st.tabs(["1️⃣ Definition Alignment", "2️⃣ Euromonitor Data", "📊 Insights & Rationale"])
