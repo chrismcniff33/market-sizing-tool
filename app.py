@@ -112,7 +112,7 @@ EUROMONITOR SNACKS TAXONOMY RULES & EXCLUSIONS:
 # --- AI FUNCTIONS (CACHED) ---
 
 @st.cache_data(show_spinner=False, ttl=3600)
-def check_euromonitor(_client, definition, examples):
+def check_euromonitor(_client, input_text):
     system_prompt = f"""
     You are a Senior Market Research Analyst and expert in Euromonitor Passport's taxonomy.
     Determine how the custom user category definition(s) map to Euromonitor's standard 'Snacks' definitions.
@@ -120,20 +120,21 @@ def check_euromonitor(_client, definition, examples):
     {EUROMONITOR_SNACKS_TAXONOMY}
 
     TASK:
-    Analyze the user's category definition(s) and examples. There may be one or multiple categories provided in the text.
-    Return JSON in this exact format containing a list of mappings:
+    Analyze the user's input text, which contains one or multiple category definitions and potentially product examples or notes.
+    Identify EACH distinct category mentioned.
+    For EACH category, return a mapping in the JSON array below:
     {{
         "mappings": [
             {{
-                "User Category": "Name/Summary of the custom category analyzed",
+                "User Category": "Name of the custom category analyzed",
                 "Coverage Status": "Fully Covered" | "Partially Covered" | "Not Covered", 
                 "Euromonitor Categories": "List of exact subcategories matched (comma separated)", 
-                "Explanatory Notes": "Brief explanation of alignment and logic, noting any strict Euromonitor exclusions."
+                "Explanatory Notes": "Brief explanation of alignment, logic, and how provided examples fit, noting any strict Euromonitor exclusions."
             }}
         ]
     }}
     """
-    user_prompt = f"Definition text: '{definition}'\nExamples: {examples}"
+    user_prompt = f"Input text (Definitions, Examples, Notes): \n\n{input_text}"
     try:
         response = _client.chat.completions.create(
             model="gpt-4o-mini",
@@ -152,10 +153,10 @@ def classify_sku_batch(_client, category_def, skus_data_json):
     
     {EUROMONITOR_SNACKS_TAXONOMY}
     
-    Custom Category Definition: "{category_def}"
+    Custom Category Definition(s) & Notes: "{category_def}"
     
     TASK:
-    Analyze each SKU. Determine if it matches the Custom Category Definition while adhering to Euromonitor's overall inclusions and exclusions.
+    Analyze each SKU. Determine if it matches ANY of the Custom Category Definitions provided while adhering to Euromonitor's overall inclusions and exclusions.
     Return JSON with key "results": list of {{ "id": int, "is_match": bool, "rationale": "Brief reason based on rules" }}.
     """
     try:
@@ -172,7 +173,7 @@ def generate_summary_insights(client, category_def, top_brands, total_skus, matc
     system_prompt = "You are a Senior Market Strategy Consultant. Synthesize the data provided into 5 sharp, strategic insights."
     user_prompt = f"""
     Context:
-    - Custom Category: "{category_def}"
+    - Custom Category definitions: "{category_def}"
     - Total Market Value: {market_val}
     - Total SKUs Analyzed: {total_skus}
     - SKUs Matching Definition: {matched_skus}
@@ -229,7 +230,7 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
         
-    st.caption("v4.0 | PDF & Granular Taxonomy Enabled")
+    st.caption("v4.1 | Multi-Category & PDF Notes Enabled")
 
 # Tabs
 tab1, tab2, tab3, tab4 = st.tabs(["1️⃣ Definition Alignment", "2️⃣ Passport Data", "3️⃣ Upload SKUs", "📊 Insights & Rationale"])
@@ -237,7 +238,7 @@ tab1, tab2, tab3, tab4 = st.tabs(["1️⃣ Definition Alignment", "2️⃣ Passp
 # TAB 1: DEFINITION ALIGNMENT
 with tab1:
     st.markdown("### 📥 Input Category Definitions")
-    st.markdown("Provide your custom category definitions either by typing them out or uploading a document (e.g., an internal taxonomy).")
+    st.markdown("Enter your category definitions and any relevant product examples below, or upload a document. **You can map multiple categories at once.**")
     
     # Input Method Toggle
     input_method = st.radio("Choose input method:", ["Free Text", "Upload PDF"], horizontal=True, label_visibility="collapsed")
@@ -246,42 +247,44 @@ with tab1:
     
     if input_method == "Free Text":
         current_input_text = st.text_area(
-            "Category Definition(s):", 
-            value=st.session_state.cat_def_input if not st.session_state.cat_def_input.startswith("Error") else "",
-            height=150, 
-            placeholder="e.g. Protein-fortified savoury snacks, targeting meal-replacement snacking occasions..."
+            "Category Definition(s) & Examples:", 
+            value=st.session_state.cat_def_input if not st.session_state.cat_def_input.startswith("--- PDF TEXT ---") and not st.session_state.cat_def_input.startswith("Error") else "",
+            height=200, 
+            placeholder="e.g. \n1. Protein-fortified savoury snacks (e.g., Quest Chips).\n2. Vegan Chocolate targeting premium gifting (e.g., Booja-Booja, Vego)."
         )
     else:
         uploaded_pdf = st.file_uploader("Upload Category Definitions (PDF)", type=["pdf"])
+        pdf_notes = st.text_area(
+            "Supplementary Notes & Examples (Optional):", 
+            placeholder="Add any specific instructions, product examples, or context to accompany the PDF...", 
+            height=100
+        )
+        
         if uploaded_pdf is not None:
-            current_input_text = extract_text_from_pdf(uploaded_pdf)
-            if "Error" not in current_input_text:
+            extracted_text = extract_text_from_pdf(uploaded_pdf)
+            if "Error" not in extracted_text:
                 st.success("PDF loaded successfully!")
                 with st.expander("📄 View Extracted PDF Text"):
-                    st.write(current_input_text)
+                    st.write(extracted_text)
+                
+                # Combine PDF text and notes into a single string for the AI
+                current_input_text = f"--- PDF TEXT ---\n{extracted_text}\n\n--- SUPPLEMENTARY NOTES & EXAMPLES ---\n{pdf_notes}"
             else:
-                st.error(current_input_text)
-
-    st.markdown("#### 🔗 Reference Product Examples (Optional)")
-    col_ex1, col_ex2, col_ex3 = st.columns(3)
-    with col_ex1: ex1 = st.text_input("Example / URL 1")
-    with col_ex2: ex2 = st.text_input("Example / URL 2")
-    with col_ex3: ex3 = st.text_input("Example / URL 3")
+                st.error(extracted_text)
 
     # Action Button
     if st.button("🔍 Validate & Map Definition(s)", use_container_width=True):
         if not oa_key: 
             st.error("⚠️ Please enter your OpenAI API Key in the sidebar.")
         elif not current_input_text.strip():
-            st.warning("⚠️ Please provide a category definition via text or PDF.")
+            st.warning("⚠️ Please provide category definitions via text or PDF.")
         else:
-            st.session_state.cat_def_input = current_input_text # Save for Tab 3/4
+            st.session_state.cat_def_input = current_input_text # Save for Tab 3/4 classification
             client = OpenAI(api_key=oa_key)
             with st.spinner("Consulting Euromonitor Taxonomy & Mapping Categories..."):
                 st.session_state.alignment_check = check_euromonitor(
                     client, 
-                    st.session_state.cat_def_input, 
-                    [ex1, ex2, ex3]
+                    st.session_state.cat_def_input
                 )
 
     # --- BOTTOM HALF: TABULAR OUTPUT ---
