@@ -157,18 +157,16 @@ def check_euromonitor(_client, input_text):
     
     {EUROMONITOR_SNACKS_TAXONOMY}
 
-    CRITICAL INSTRUCTIONS FOR MAPPING:
+    CRITICAL INSTRUCTIONS FOR MAPPING (FOLLOW EXACTLY):
     1. GRANULARITY: ALWAYS map the user category to the MOST GRANULAR (lowest-level) Euromonitor subcategory available (e.g., map to "Potato Chips", not the parent "Salty Snacks").
     
     2. SEPARATE COVERAGE AND ALIGNMENT: These two metrics are completely independent. Do NOT let them influence each other.
        
        - COVERAGE: Does Euromonitor track the sales of these products anywhere in its database?
-         * "Fully Covered": 100% of the products described in the user's category are tracked somewhere in Passport.
-            -> EXAMPLE 1: If a user asks for "Whitening Gum", it is FULLY COVERED because all of it is tracked inside "Chewing Gum".
-            -> EXAMPLE 2: If a user asks for "Biscuits + Kit Kats", it is FULLY COVERED because Passport tracks biscuits and also tracks Kit Kats (under Countlines).
-         * "Partially Covered": The user's category includes a mix of tracked products AND explicitly excluded products. 
-            -> EXAMPLE: "All Nuts" is Partially Covered because Passport tracks packaged snack nuts but explicitly excludes raw baking nuts.
-         * "Zero Coverage": 100% of the user's products are explicitly excluded by Euromonitor (e.g., "Raw Baking Nuts").
+         * "Fully Covered": 100% of the products described in the user's category are tracked somewhere in Passport. 
+            -> CRITICAL RULE: If a custom category spans MULTIPLE Passport categories (e.g., Sweet Biscuits AND Countlines), the coverage is still "Fully Covered". Do NOT output "Partially Covered" just because it spans multiple categories.
+         * "Partially Covered": The user's category includes a mix of tracked products AND products that Euromonitor EXPLICITLY EXCLUDES (e.g., unpackaged items, baking ingredients, cakes/pastries). 
+         * "Zero Coverage": 100% of the user's products are explicitly excluded by Euromonitor.
 
        - ALIGNMENT: How cleanly does the user's category map to the Passport hierarchy?
          * "Fully Aligned (1-to-1)": The user category exactly mirrors ONE lowest-level Euromonitor category.
@@ -298,7 +296,7 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
         
-    st.caption("v4.7 | Detailed Rationale & Full Coverage Logic")
+    st.caption("v4.8 | Strict Coverage Directives")
 
 # Tabs
 tab1, tab2, tab3 = st.tabs(["1️⃣ Definition Alignment", "2️⃣ Euromonitor Data", "📊 Insights & Rationale"])
