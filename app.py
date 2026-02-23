@@ -5,6 +5,7 @@ import re
 import json
 from openai import OpenAI
 import time
+import PyPDF2
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Custom Category Market Sizing", layout="wide", page_icon="📐")
@@ -15,8 +16,6 @@ st.set_page_config(page_title="Custom Category Market Sizing", layout="wide", pa
 
 def check_password():
     """Returns `True` if the user had the correct password."""
-
-    # 1. Check if there is a password set in secrets
     if "APP_PASSWORD" not in st.secrets:
         return True # No password set, let everyone in
 
@@ -28,9 +27,7 @@ def check_password():
         else:
             st.session_state["password_correct"] = False
 
-    # 2. Check if the user is already logged in
     if "password_correct" not in st.session_state:
-        # First run, show input
         st.text_input(
             "Please enter the App Password to continue:", 
             type="password", 
@@ -39,7 +36,6 @@ def check_password():
         )
         return False
     elif not st.session_state["password_correct"]:
-        # Password incorrect, show input again + error
         st.text_input(
             "Please enter the App Password to continue:", 
             type="password", 
@@ -49,15 +45,13 @@ def check_password():
         st.error("😕 Password incorrect")
         return False
     else:
-        # Password correct
         return True
 
-# 🛑 STOP HERE IF PASSWORD IS WRONG
 if not check_password():
     st.stop()
 
 # ------------------------------------------------------------------
-# 🔓 MAIN APP (Only runs if password is correct)
+# 🔓 MAIN APP
 # ------------------------------------------------------------------
 
 # --- CUSTOM CSS ---
@@ -87,16 +81,59 @@ def estimate_cost(num_rows):
     cost_output = (output_tokens / 1_000_000) * 0.60
     return cost_input + cost_output
 
+def extract_text_from_pdf(uploaded_file):
+    """Extracts text from an uploaded PDF file."""
+    try:
+        pdf_reader = PyPDF2.PdfReader(uploaded_file)
+        text = ""
+        for page in pdf_reader.pages:
+            text += page.extract_text() + "\n"
+        return text
+    except Exception as e:
+        return f"Error reading PDF: {e}"
+
+# --- SHARED TAXONOMY KNOWLEDGE BASE ---
+EUROMONITOR_SNACKS_TAXONOMY = """
+EUROMONITOR SNACKS TAXONOMY RULES & EXCLUSIONS:
+1. Confectionery:
+   - Includes: Chocolate (Pouches/Bags, Boxed Assortments, Toys, Countlines, Seasonal, Tablets, Other), Gum (Chewing/Bubble), and Sugar Confectionery (Boiled sweets, Chewy candies, Gummies/Jellies, Liquorice, Lollipops, Medicated, Mints, Toffees/Caramels/Nougat).
+   - EXCLUDES: Baking/cooking chocolate, unpackaged/loose sales (except for chocolate where artisanal is included).
+2. Ice Cream:
+   - Includes: Frozen Yoghurt, Impulse (Single portion dairy/water), Plant-based, Unpackaged (sold by scoop), Take-Home (Bulk, Desserts, Multi-pack).
+   - EXCLUDES: Soft serve from dispensing machines in foodservice outlets, frozen desserts.
+3. Savoury Snacks:
+   - Includes: Nuts/Seeds/Trail Mixes (MUST be processed/packaged), Salty Snacks (Potato chips, Tortilla chips, Puffed snacks, Rice snacks, Veg/Pulse/Bread chips like packaged snack croutons), Savoury Biscuits (dry bread substitutes), Popcorn (packaged/microwave), Pretzels, Meat Snacks (ambient), Seafood Snacks.
+   - EXCLUDES: Raw/baking nuts, unpackaged cinema popcorn, chocolate-coated nuts/pretzels/popcorn (these go to Confectionery), croutons meant for soup/salad.
+4. Sweet Biscuits, Snack Bars and Fruit Snacks:
+   - Includes: Fruit Snacks (Dried fruit, Processed fruit snacks), Snack Bars (Cereal bars, Protein/Energy bars, Fruit/Nut bars), Sweet Biscuits (Chocolate coated, Cookies, Filled biscuits, Plain biscuits, Wafers).
+   - EXCLUDES: Unpackaged dried fruit, dried fruit for baking, weight-loss/meal replacement bars, cookie dough, ice cream wafers.
+"""
+
 # --- AI FUNCTIONS (CACHED) ---
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def check_euromonitor(_client, definition, examples):
-    system_prompt = """
+    system_prompt = f"""
     You are a Senior Market Research Analyst and expert in Euromonitor Passport's taxonomy.
-    Determine if a custom user category falls within Euromonitor's standard definitions.
-    Return JSON: {"status": "Fully Covered"|"Partially Covered"|"Not Covered", "euromonitor_categories": [list strings], "explanation": "string"}
+    Determine how the custom user category definition(s) map to Euromonitor's standard 'Snacks' definitions.
+    
+    {EUROMONITOR_SNACKS_TAXONOMY}
+
+    TASK:
+    Analyze the user's category definition(s) and examples. There may be one or multiple categories provided in the text.
+    Return JSON in this exact format containing a list of mappings:
+    {{
+        "mappings": [
+            {{
+                "User Category": "Name/Summary of the custom category analyzed",
+                "Coverage Status": "Fully Covered" | "Partially Covered" | "Not Covered", 
+                "Euromonitor Categories": "List of exact subcategories matched (comma separated)", 
+                "Explanatory Notes": "Brief explanation of alignment and logic, noting any strict Euromonitor exclusions."
+            }}
+        ]
+    }}
     """
-    user_prompt = f"Definition: '{definition}'\nExamples: {examples}"
+    user_prompt = f"Definition text: '{definition}'\nExamples: {examples}"
     try:
         response = _client.chat.completions.create(
             model="gpt-4o-mini",
@@ -105,15 +142,21 @@ def check_euromonitor(_client, definition, examples):
         )
         return json.loads(response.choices[0].message.content)
     except Exception as e:
-        return {"status": "Error", "explanation": str(e), "euromonitor_categories": []}
+        return {"mappings": [{"User Category": "Error", "Coverage Status": "Error", "Euromonitor Categories": "None", "Explanatory Notes": str(e)}]}
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def classify_sku_batch(_client, category_def, skus_data_json):
     skus_data = json.loads(skus_data_json)
     system_prompt = f"""
-    You are a strict taxonomy expert.
-    Category Definition: "{category_def}"
-    Analyze each SKU. Return JSON with key "results": list of {{ "id": int, "is_match": bool, "rationale": string }}.
+    You are a strict taxonomy expert. 
+    
+    {EUROMONITOR_SNACKS_TAXONOMY}
+    
+    Custom Category Definition: "{category_def}"
+    
+    TASK:
+    Analyze each SKU. Determine if it matches the Custom Category Definition while adhering to Euromonitor's overall inclusions and exclusions.
+    Return JSON with key "results": list of {{ "id": int, "is_match": bool, "rationale": "Brief reason based on rules" }}.
     """
     try:
         response = _client.chat.completions.create(
@@ -161,6 +204,7 @@ in line with how you view the universe you are playing in.
 st.divider()
 
 # Session State Initialization
+if 'cat_def_input' not in st.session_state: st.session_state.cat_def_input = ""
 if 'df_p' not in st.session_state: st.session_state.df_p = None
 if 'df_s' not in st.session_state: st.session_state.df_s = None
 if 'processed_data' not in st.session_state: st.session_state.processed_data = None
@@ -170,8 +214,6 @@ if 'qual_insights' not in st.session_state: st.session_state.qual_insights = Non
 # Sidebar
 with st.sidebar:
     st.header("🔑 API Credentials")
-    
-    # 🔒 SECRETS LOGIC FOR API KEY
     if "OPENAI_API_KEY" in st.secrets:
         oa_key = st.secrets["OPENAI_API_KEY"]
         st.success("✅ Connected to OpenAI")
@@ -182,35 +224,90 @@ with st.sidebar:
     st.header("⚙️ Processing Settings")
     process_all = st.checkbox("Process Entire File", value=False)
     process_limit = 0 if process_all else st.slider("Test Limit (Rows)", 10, 500, 50)
-    st.caption("v3.2 | Secure & Cached")
+    
+    if st.button("🗑️ Clear Cache & Restart"):
+        st.session_state.clear()
+        st.rerun()
+        
+    st.caption("v4.0 | PDF & Granular Taxonomy Enabled")
 
 # Tabs
 tab1, tab2, tab3, tab4 = st.tabs(["1️⃣ Definition Alignment", "2️⃣ Passport Data", "3️⃣ Upload SKUs", "📊 Insights & Rationale"])
 
-# TAB 1: DEFINITION
+# TAB 1: DEFINITION ALIGNMENT
 with tab1:
-    st.subheader("Define & Validate Category")
-    col_def, col_ex = st.columns([3, 2])
-    with col_def:
-        category_definition = st.text_area("Category Definition:", height=150, key="cat_def_input", placeholder="e.g. Sulfate-free shampoo...")
-    with col_ex:
-        st.write("**Reference Examples (Optional)**")
-        ex1 = st.text_input("URL 1")
-        ex2 = st.text_input("URL 2")
-        ex3 = st.text_input("URL 3")
+    st.markdown("### 📥 Input Category Definitions")
+    st.markdown("Provide your custom category definitions either by typing them out or uploading a document (e.g., an internal taxonomy).")
+    
+    # Input Method Toggle
+    input_method = st.radio("Choose input method:", ["Free Text", "Upload PDF"], horizontal=True, label_visibility="collapsed")
+    
+    current_input_text = ""
+    
+    if input_method == "Free Text":
+        current_input_text = st.text_area(
+            "Category Definition(s):", 
+            value=st.session_state.cat_def_input if not st.session_state.cat_def_input.startswith("Error") else "",
+            height=150, 
+            placeholder="e.g. Protein-fortified savoury snacks, targeting meal-replacement snacking occasions..."
+        )
+    else:
+        uploaded_pdf = st.file_uploader("Upload Category Definitions (PDF)", type=["pdf"])
+        if uploaded_pdf is not None:
+            current_input_text = extract_text_from_pdf(uploaded_pdf)
+            if "Error" not in current_input_text:
+                st.success("PDF loaded successfully!")
+                with st.expander("📄 View Extracted PDF Text"):
+                    st.write(current_input_text)
+            else:
+                st.error(current_input_text)
 
-    if st.button("🔍 Validate Definition"):
-        if not oa_key: st.error("Please enter API Key")
+    st.markdown("#### 🔗 Reference Product Examples (Optional)")
+    col_ex1, col_ex2, col_ex3 = st.columns(3)
+    with col_ex1: ex1 = st.text_input("Example / URL 1")
+    with col_ex2: ex2 = st.text_input("Example / URL 2")
+    with col_ex3: ex3 = st.text_input("Example / URL 3")
+
+    # Action Button
+    if st.button("🔍 Validate & Map Definition(s)", use_container_width=True):
+        if not oa_key: 
+            st.error("⚠️ Please enter your OpenAI API Key in the sidebar.")
+        elif not current_input_text.strip():
+            st.warning("⚠️ Please provide a category definition via text or PDF.")
         else:
+            st.session_state.cat_def_input = current_input_text # Save for Tab 3/4
             client = OpenAI(api_key=oa_key)
-            with st.spinner("Consulting Euromonitor Taxonomy..."):
-                st.session_state.alignment_check = check_euromonitor(client, category_definition, [ex1, ex2, ex3])
+            with st.spinner("Consulting Euromonitor Taxonomy & Mapping Categories..."):
+                st.session_state.alignment_check = check_euromonitor(
+                    client, 
+                    st.session_state.cat_def_input, 
+                    [ex1, ex2, ex3]
+                )
 
+    # --- BOTTOM HALF: TABULAR OUTPUT ---
     if st.session_state.alignment_check:
-        res = st.session_state.alignment_check
-        status = res.get('status', 'Error')
-        color = "#d4edda" if "Fully" in status else "#fff3cd" if "Partially" in status else "#f8d7da"
-        st.markdown(f'<div style="background-color:{color}; padding:15px; border-radius:5px; margin-top:20px;"><b>{status}:</b> {res["explanation"]}</div>', unsafe_allow_html=True)
+        st.divider()
+        st.markdown("### 📊 Alignment Results")
+        
+        mappings = st.session_state.alignment_check.get("mappings", [])
+        
+        if mappings:
+            df_mappings = pd.DataFrame(mappings)
+            
+            # Display interactive dataframe
+            st.dataframe(
+                df_mappings, 
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "User Category": st.column_config.TextColumn("User Category", width="medium"),
+                    "Coverage Status": st.column_config.TextColumn("Coverage Status", width="small"),
+                    "Euromonitor Categories": st.column_config.TextColumn("Passport Subcategories", width="medium"),
+                    "Explanatory Notes": st.column_config.TextColumn("Strategic Rationale & Logic", width="large"),
+                }
+            )
+        else:
+            st.error("Could not map categories. Please check your inputs or try adjusting the definition.")
 
 # TAB 2: PASSPORT
 with tab2:
@@ -253,11 +350,13 @@ with tab4:
             rows = len(df_s) if process_all else min(process_limit, len(df_s))
             est = estimate_cost(rows)
             st.info(f"Ready to process {rows:,} SKUs. Est Cost: ${est:.4f}")
-            if st.button("🚀 Run Market Sizing"):
+            
+            if st.button("🚀 Run Market Sizing", use_container_width=True):
                 if not oa_key: st.stop()
                 client = OpenAI(api_key=oa_key)
                 df_subset = df_s.head(rows).copy()
                 b_s, n_s, r_s, p_s, u_s, d_s = st.session_state.mapped_s
+                
                 progress = st.progress(0, text="Analyzing...")
                 results_map = {}
                 batch_size = 10
@@ -269,26 +368,32 @@ with tab4:
                         if d_s != "None": txt += f", Desc: {str(row[d_s])[:150]}"
                         if u_s != "None": txt += f", URL: {str(row[u_s])}"
                         payload.append({"id": idx, "text": txt})
+                    
                     resp = classify_sku_batch(client, st.session_state.cat_def_input, json.dumps(payload))
                     if "results" in resp:
                         for item in resp["results"]: results_map[item["id"]] = item
                     progress.progress(min((i+batch_size)/rows, 1.0))
+                
                 df_subset['is_match'] = df_subset.index.map(lambda x: results_map.get(x, {}).get('is_match', False))
                 df_subset['rationale'] = df_subset.index.map(lambda x: results_map.get(x, {}).get('rationale', "Failed"))
                 st.session_state.processed_data = df_subset
+                
                 df_results = df_subset
                 df_p = st.session_state.df_p
                 b_p, s_p = st.session_state.mapped_p
+                
                 brand_stats = df_results.groupby(b_s).agg(total=(b_s, 'count'), matched=('is_match', 'sum')).reset_index()
                 brand_stats['ratio'] = brand_stats['matched'] / brand_stats['total']
                 known_brands = df_p[b_p].unique()
                 others_stats = brand_stats[~brand_stats[b_s].isin(known_brands)]
                 others_ratio = others_stats['matched'].sum() / others_stats['total'].sum() if not others_stats.empty else 0
+                
                 df_final = pd.merge(df_p, brand_stats, left_on=b_p, right_on=b_s, how='left')
                 df_final['ratio'] = df_final['ratio'].fillna(0)
                 df_final.loc[df_final[b_p].str.contains("Other", case=False, na=False), 'ratio'] = others_ratio
                 df_final['custom_sales'] = df_final[s_p] * df_final['ratio']
                 st.session_state.df_final = df_final
+                
                 top_5_str = ", ".join(df_final.sort_values('custom_sales', ascending=False).head(5)[b_p].tolist())
                 m_val = f"{df_final['custom_sales'].sum()/1e6:.1f}M"
                 st.session_state.qual_insights = generate_summary_insights(client, st.session_state.cat_def_input, top_5_str, rows, df_subset['is_match'].sum(), m_val)
@@ -302,12 +407,14 @@ with tab4:
         total_custom_sales = df_final['custom_sales'].sum()
         matched_skus = df_results['is_match'].sum()
         total_skus = len(df_results)
+        
         k1, k2, k3 = st.columns(3)
         def kpi(label, value, subtext):
             return f"""<div class="kpi-card"><div style="font-size: 14px; color: #666;">{label}</div><div style="font-size: 32px; font-weight: bold; color: #007bff; margin: 5px 0;">{value}</div><div style="font-size: 12px; color: #888;">{subtext}</div></div>"""
         k1.markdown(kpi("Custom Market Size", f"{total_custom_sales/1e6:,.1f}M", "Total Value"), unsafe_allow_html=True)
         k2.markdown(kpi("SKU Alignment", f"{matched_skus}", f"out of {total_skus}"), unsafe_allow_html=True)
         k3.markdown(kpi("Portfolio Share", f"{(matched_skus/total_skus)*100:.1f}%", "Matching SKUs"), unsafe_allow_html=True)
+        
         st.markdown("---")
         c_left, c_right = st.columns([1, 1])
         with c_left:
@@ -316,6 +423,7 @@ with tab4:
             fig = px.pie(chart_df, values='custom_sales', names=b_p, hole=0.4, color_discrete_sequence=px.colors.qualitative.Prism)
             fig.update_layout(showlegend=False, margin=dict(t=0, b=0, l=0, r=0))
             st.plotly_chart(fig, use_container_width=True)
+        
         with c_right:
             st.write("### 💡 Strategic Rationale")
             st.markdown('<div class="insight-box">', unsafe_allow_html=True)
@@ -323,6 +431,7 @@ with tab4:
                 for insight in st.session_state.qual_insights: st.markdown(f"• {insight}")
             else: st.write("Generating insights...")
             st.markdown('</div>', unsafe_allow_html=True)
+            
         st.markdown("---")
         if p_s != "None":
             st.write("### 🏷️ Price Architecture")
@@ -331,6 +440,7 @@ with tab4:
             price_chart_df = df_results[df_results['clean_price'] > 0]
             fig_price = px.box(price_chart_df, x='Segment', y='clean_price', color='Segment', color_discrete_map={"Custom Category": "#007bff", "Rest of Portfolio": "#d3d3d3"})
             st.plotly_chart(fig_price, use_container_width=True)
+            
         st.write("### ✅ Verified Product Examples")
         matches = df_results[df_results['is_match'] == True]
         if not matches.empty:
