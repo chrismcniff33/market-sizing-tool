@@ -230,10 +230,10 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
         
-    st.caption("v4.1 | Multi-Category & PDF Notes Enabled")
+    st.caption("v4.2 | Consolidated Data Ingestion")
 
 # Tabs
-tab1, tab2, tab3, tab4 = st.tabs(["1️⃣ Definition Alignment", "2️⃣ Passport Data", "3️⃣ Upload SKUs", "📊 Insights & Rationale"])
+tab1, tab2, tab3 = st.tabs(["1️⃣ Definition Alignment", "2️⃣ Euromonitor Data", "📊 Insights & Rationale"])
 
 # TAB 1: DEFINITION ALIGNMENT
 with tab1:
@@ -312,9 +312,20 @@ with tab1:
         else:
             st.error("Could not map categories. Please check your inputs or try adjusting the definition.")
 
-# TAB 2: PASSPORT
+# TAB 2: EUROMONITOR DATA (Combined Passport & SKUs)
 with tab2:
-    st.subheader("Import Market Sales Data")
+    st.markdown("### 📥 Import Market & SKU Data")
+    st.markdown("""
+    <div class="instruction-text">
+    <b>Instructions:</b> Based on the Euromonitor subcategories highlighted in the alignment tab, please upload:
+    <ol>
+        <li>The <b>full dataset for brand shares and sales</b> from those relevant Passport categories.</li>
+        <li>A separate CSV containing <b>all relevant SKU data</b> (products, descriptions, prices) from those same categories to determine the true custom market size.</li>
+    </ol>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("#### 1️⃣ Market Sales Data (Passport)")
     p_file = st.file_uploader("Upload Passport CSV", type="csv")
     if p_file:
         df_p_raw = pd.read_csv(p_file)
@@ -326,26 +337,26 @@ with tab2:
         st.session_state.mapped_p = (brand_col_p, 'CLEANED_SALES')
         st.dataframe(df_p_raw.head(3), use_container_width=True)
 
-# TAB 3: SKUS
-with tab3:
-    st.subheader("Import SKU Attributes")
+    st.divider()
+
+    st.markdown("#### 2️⃣ SKU Attributes Data")
     s_file = st.file_uploader("Upload SKU CSV", type="csv")
     if s_file:
         df_s_raw = pd.read_csv(s_file)
         st.session_state.df_s = df_s_raw
-        c1, c2, c3 = st.columns(3)
-        with c1: brand_col_s = st.selectbox("SKU Brand Column", df_s_raw.columns, key='bs')
-        with c2: name_col_s = st.selectbox("SKU Name Column", df_s_raw.columns, key='ns')
-        with c3: retailer_col_s = st.selectbox("Retailer Column (Optional)", ["None"] + list(df_s_raw.columns), key='rs')
-        c4, c5, c6 = st.columns(3)
-        with c4: price_col_s = st.selectbox("Price Column (Optional)", ["None"] + list(df_s_raw.columns), key='ps')
-        with c5: url_col_s = st.selectbox("URL Column (Optional)", ["None"] + list(df_s_raw.columns), key='us')
-        with c6: desc_col_s = st.selectbox("Description Column (Optional)", ["None"] + list(df_s_raw.columns), key='ds')
+        c3, c4, c5 = st.columns(3)
+        with c3: brand_col_s = st.selectbox("SKU Brand Column", df_s_raw.columns, key='bs')
+        with c4: name_col_s = st.selectbox("SKU Name Column", df_s_raw.columns, key='ns')
+        with c5: retailer_col_s = st.selectbox("Retailer Column (Optional)", ["None"] + list(df_s_raw.columns), key='rs')
+        c6, c7, c8 = st.columns(3)
+        with c6: price_col_s = st.selectbox("Price Column (Optional)", ["None"] + list(df_s_raw.columns), key='ps')
+        with c7: url_col_s = st.selectbox("URL Column (Optional)", ["None"] + list(df_s_raw.columns), key='us')
+        with c8: desc_col_s = st.selectbox("Description Column (Optional)", ["None"] + list(df_s_raw.columns), key='ds')
         st.session_state.mapped_s = (brand_col_s, name_col_s, retailer_col_s, price_col_s, url_col_s, desc_col_s)
         st.dataframe(df_s_raw.head(3), use_container_width=True)
 
-# TAB 4: INSIGHTS
-with tab4:
+# TAB 3: INSIGHTS
+with tab3:
     st.subheader("Market Sizing & Analysis")
     if st.session_state.get('cat_def_input') and st.session_state.df_p is not None and st.session_state.df_s is not None:
         if st.session_state.processed_data is None:
