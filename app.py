@@ -158,20 +158,25 @@ def check_euromonitor(_client, input_text):
     {EUROMONITOR_SNACKS_TAXONOMY}
 
     CRITICAL INSTRUCTIONS FOR MAPPING:
-    1. GRANULARITY: ALWAYS map the user category to the MOST GRANULAR (lowest-level) Euromonitor subcategory available in the hierarchy (e.g., map to "Potato Chips", not the parent "Salty Snacks" or "Savoury Snacks").
+    1. GRANULARITY: ALWAYS map the user category to the MOST GRANULAR (lowest-level) Euromonitor subcategory available (e.g., map to "Potato Chips", not the parent "Salty Snacks").
     
-    2. COVERAGE vs. ALIGNMENT:
-       - COVERAGE: Does Euromonitor track the products in the user's category?
-         * "Fully Covered": All products are tracked somewhere in Passport.
-         * "Partially Covered": Some products are tracked, some are explicitly excluded.
-         * "Zero Coverage": None of the products are tracked.
-       - ALIGNMENT: How cleanly does the user's category map to the lowest-level Euromonitor node?
-         * "Fully Aligned (1-to-1)": The user category exactly mirrors the scope of ONE lowest-level Euromonitor category (e.g., user "Potato Chips" = Passport "Potato Chips").
-         * "Partially Aligned (Subset)": The user category is a smaller niche trapped INSIDE a broader Euromonitor category (e.g., user "Whitening Gum" is only a subset of Passport "Chewing Gum").
-         * "Partially Aligned (Scattered)": The user category spans MULTIPLE Euromonitor categories (e.g., user groups Biscuits and Countlines together).
+    2. SEPARATE COVERAGE AND ALIGNMENT: These two metrics are completely independent. Do NOT let them influence each other.
+       
+       - COVERAGE: Does Euromonitor track the sales of these products anywhere in its database?
+         * "Fully Covered": 100% of the products described in the user's category are tracked somewhere in Passport.
+            -> EXAMPLE 1: If a user asks for "Whitening Gum", it is FULLY COVERED because all of it is tracked inside "Chewing Gum".
+            -> EXAMPLE 2: If a user asks for "Biscuits + Kit Kats", it is FULLY COVERED because Passport tracks biscuits and also tracks Kit Kats (under Countlines).
+         * "Partially Covered": The user's category includes a mix of tracked products AND explicitly excluded products. 
+            -> EXAMPLE: "All Nuts" is Partially Covered because Passport tracks packaged snack nuts but explicitly excludes raw baking nuts.
+         * "Zero Coverage": 100% of the user's products are explicitly excluded by Euromonitor (e.g., "Raw Baking Nuts").
+
+       - ALIGNMENT: How cleanly does the user's category map to the Passport hierarchy?
+         * "Fully Aligned (1-to-1)": The user category exactly mirrors ONE lowest-level Euromonitor category.
+         * "Partially Aligned (Subset)": The user category is a smaller niche trapped INSIDE a broader Euromonitor category (e.g., "Whitening Gum" is only a subset of Passport's broader "Chewing Gum").
+         * "Partially Aligned (Scattered)": The user category spans MULTIPLE Euromonitor categories (e.g., "Biscuits + Kit Kats" spans "Sweet Biscuits" and "Countlines").
          * "N/A": If Zero Coverage.
 
-    3. RIGOROUS EXAMPLE CHECKING: You must rigorously check EVERY product example provided by the user against the taxonomy boundaries BEFORE deciding overall coverage and alignment.
+    3. RIGOROUS EXAMPLE CHECKING: Check EVERY product example provided against the taxonomy boundaries before deciding overall coverage and alignment.
 
     TASK:
     Analyze the user's input text. Identify EACH distinct category.
@@ -183,7 +188,7 @@ def check_euromonitor(_client, input_text):
                 "Euromonitor Coverage": "Fully Covered" | "Partially Covered" | "Zero Coverage",
                 "Alignment": "Fully Aligned (1-to-1)" | "Partially Aligned (Subset)" | "Partially Aligned (Scattered)" | "Not Aligned" | "N/A",
                 "Mapped Euromonitor Subcategories": "List of the MOST GRANULAR subcategories matched (e.g., 'Potato Chips', 'Chewing Gum', 'Sweet Biscuits, Countlines') or blank if Zero Coverage", 
-                "Rationale": "Explain your logic. If Partially Aligned (Subset), explain what broader Passport category it sits inside and what it excludes. If Scattered, explain the split. If Zero Coverage, explain why.",
+                "Rationale": "Explain your logic. Be clear about WHY the Coverage and Alignment statuses were chosen based on the rules provided.",
                 "Examples": [
                     {{
                         "Product": "Name of example",
@@ -293,7 +298,7 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
         
-    st.caption("v4.5 | Granularity & Subset Logic Enabled")
+    st.caption("v4.6 | Coverage Independence Logic Enabled")
 
 # Tabs
 tab1, tab2, tab3 = st.tabs(["1️⃣ Definition Alignment", "2️⃣ Euromonitor Data", "📊 Insights & Rationale"])
