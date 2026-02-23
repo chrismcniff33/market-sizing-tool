@@ -128,8 +128,9 @@ def check_euromonitor(_client, input_text):
     {EUROMONITOR_SNACKS_TAXONOMY}
 
     CRITICAL INSTRUCTION FOR MAPPING:
-    You must rigorously check EVERY product example provided by the user against the taxonomy boundaries BEFORE deciding the overall coverage status.
-    If a user groups items together that Euromonitor splits apart (e.g., standard biscuits vs confectionery countlines), you MUST flag this as "Partially Covered" and detail the split.
+    You must distinguish between COVERAGE (Is the product tracked by Euromonitor at all?) and ALIGNMENT (Is it a 1-to-1 match with a single Euromonitor category?).
+    - If a user groups items together that Euromonitor splits apart (e.g., standard biscuits vs confectionery countlines), the COVERAGE is "Fully Covered" (because Euromonitor tracks all those items), but the ALIGNMENT is "Partially Aligned" (because it splits across multiple Passport categories).
+    - If the user category describes items Euromonitor completely ignores (e.g., raw baking nuts), COVERAGE is "Zero Coverage", ALIGNMENT is "N/A", and Categories/Examples should be left blank, but Rationale must explain why.
 
     TASK:
     Analyze the user's input text. Identify EACH distinct category.
@@ -138,16 +139,17 @@ def check_euromonitor(_client, input_text):
         "mappings": [
             {{
                 "User Category": "Name of the custom category analyzed",
-                "Example Analysis": [
+                "Euromonitor Coverage": "Fully Covered" | "Partially Covered" | "Zero Coverage",
+                "Alignment": "Fully Aligned" | "Partially Aligned" | "Not Aligned" | "N/A",
+                "Mapped Euromonitor Subcategories": "List of exact subcategories matched (e.g., 'Sweet Biscuits, Countlines') or blank if Zero Coverage", 
+                "Rationale": "Explain your logic. If Partially Aligned, explain how it splits. If Zero Coverage, explain where you looked and why it is excluded.",
+                "Examples": [
                     {{
-                        "Example Product": "Name of the specific example given by user",
-                        "Passport Category": "The strict Euromonitor category it belongs to",
-                        "Rule Applied": "The specific taxonomy rule used to classify this item"
+                        "Product": "Name of example",
+                        "Passport Category": "Category it belongs to",
+                        "Rule": "Rule applied"
                     }}
-                ],
-                "Coverage Status": "Fully Covered" | "Partially Covered" | "Not Covered", 
-                "Euromonitor Categories": "List of exact subcategories matched (e.g., 'Sweet Biscuits, Countlines')", 
-                "Explanatory Notes": "Explain exactly how the definition and examples split across Passport categories based on your Example Analysis."
+                ] // Leave Examples array empty if Zero Coverage
             }}
         ]
     }}
@@ -158,11 +160,11 @@ def check_euromonitor(_client, input_text):
             model="gpt-4o-mini",
             messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
             response_format={"type": "json_object"},
-            temperature=0.1 # <--- Slight flexibility while keeping it highly deterministic
+            temperature=0.1
         )
         return json.loads(response.choices[0].message.content)
     except Exception as e:
-        return {"mappings": [{"User Category": "Error", "Coverage Status": "Error", "Euromonitor Categories": "None", "Explanatory Notes": str(e)}]}
+        return {"mappings": [{"User Category": "Error", "Euromonitor Coverage": "Error", "Alignment": "Error", "Mapped Euromonitor Subcategories": "", "Rationale": str(e), "Examples": []}]}
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def classify_sku_batch(_client, category_def, skus_data_json):
@@ -250,7 +252,7 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
         
-    st.caption("v4.3 | Chain of Thought & Strict Rules Enabled")
+    st.caption("v4.4 | Coverage vs Alignment Tracking")
 
 # Tabs
 tab1, tab2, tab3 = st.tabs(["1️⃣ Definition Alignment", "2️⃣ Euromonitor Data", "📊 Insights & Rationale"])
@@ -317,13 +319,24 @@ with tab1:
         if mappings:
             # Format the Example Analysis for display inside the dataframe
             for m in mappings:
-                if "Example Analysis" in m and isinstance(m["Example Analysis"], list):
-                    formatted_examples = ""
-                    for ex in m["Example Analysis"]:
-                        formatted_examples += f"• {ex.get('Example Product', 'Unknown')}: mapped to {ex.get('Passport Category', 'Unknown')} ({ex.get('Rule Applied', '')})\n"
-                    m["Example Analysis"] = formatted_examples.strip()
+                if "Examples" in m and isinstance(m["Examples"], list):
+                    if len(m["Examples"]) > 0:
+                        formatted_examples = ""
+                        for ex in m["Examples"]:
+                            formatted_examples += f"• {ex.get('Product', 'Unknown')}: {ex.get('Passport Category', 'Unknown')} ({ex.get('Rule', '')})\n"
+                        m["Examples"] = formatted_examples.strip()
+                    else:
+                        m["Examples"] = ""
             
             df_mappings = pd.DataFrame(mappings)
+            
+            # Ensure columns are in the exact requested order
+            expected_columns = ["User Category", "Euromonitor Coverage", "Alignment", "Mapped Euromonitor Subcategories", "Rationale", "Examples"]
+            # Fill missing columns just in case the LLM dropped one
+            for col in expected_columns:
+                if col not in df_mappings.columns:
+                    df_mappings[col] = ""
+            df_mappings = df_mappings[expected_columns]
             
             # Display interactive dataframe
             st.dataframe(
@@ -332,10 +345,11 @@ with tab1:
                 hide_index=True,
                 column_config={
                     "User Category": st.column_config.TextColumn("User Category", width="medium"),
-                    "Coverage Status": st.column_config.TextColumn("Coverage Status", width="small"),
-                    "Euromonitor Categories": st.column_config.TextColumn("Passport Subcategories", width="medium"),
-                    "Example Analysis": st.column_config.TextColumn("Example Product Breakdown", width="large"),
-                    "Explanatory Notes": st.column_config.TextColumn("Strategic Rationale & Logic", width="large"),
+                    "Euromonitor Coverage": st.column_config.TextColumn("Euromonitor Coverage", width="small"),
+                    "Alignment": st.column_config.TextColumn("Alignment", width="small"),
+                    "Mapped Euromonitor Subcategories": st.column_config.TextColumn("Mapped Euromonitor Subcategories", width="medium"),
+                    "Rationale": st.column_config.TextColumn("Rationale", width="large"),
+                    "Examples": st.column_config.TextColumn("Examples Breakdown", width="large"),
                 }
             )
         else:
